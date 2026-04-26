@@ -1,1 +1,4 @@
-
+lat,lon,risk,temperature,pressure
+52.3,76.9,High,60, 80
+51.5,75.2,Medium,40,70
+52.4,76.7,Low,35,65
