@@ -97,7 +97,7 @@ Interactive map with:
 Open file:
 
 ```text
-https://github.com/TMadina/Digital-Twin-IoT/blob/main/map/map%20(3).png
+map/map3.png
 ```
 
 ---
