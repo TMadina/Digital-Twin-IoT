@@ -1,0 +1,212 @@
+class Alert:
+  def __init__(self, type, severity, location):
+    self.type = type
+    self.severity = severity
+    self.location = location
+    self.distance_to_water = None
+    self.water_risk = None
+    self.final_risk = severity
+
+  def update_enviroment(self, distance, water_risk, final_risk):
+    self.distance_to_water= distance
+    self.water_risk= water_risk
+    self.final_risk= final_risk
+
+  def get_color(self):
+    risk=self.final_risk if self.final_risk else self.severity
+    if self.severity =='Critical':
+      return 'red'
+    elif self.severity =='High':
+      return 'orange'
+    else:
+      return 'green'
+
+  def add_to_map(self,map_obj):
+    import folium
+    if self.distance_to_water is not None:
+      dist_text = round(self.distance_to_water,1)
+    else:
+      dist_text = "N/A"
+    folium.Marker(
+        location= self.location,
+        popup= (
+            f"{self.type}|"
+            f"Pipe: {self.severity}|"
+            f"Water: {self.water_risk}|"
+            f"Final: {self.final_risk}|"
+            f"Dist: {round(self.distance_to_water,1)}m"
+        ),
+        icon= folium.Icon(color=self.get_color())
+    ).add_to(map_obj)
+
+class Sensor:
+    def __init__(self, lat, lon, risk, temperature,pressure):
+      self.lat= lat
+      self.lon= lon
+      self.risk= risk
+      self.temperature= temperature
+      self.pressure = pressure
+
+    def add_to_map(self, map_obj):
+      import folium
+      folium.CircleMarker(
+          location = [self.lat, self.lon],
+          radius = 6,
+          color = 'blue',
+          fill = True,
+          fill_opacity = 0.7,
+          popup = f"Temp: {self.temperature}, Risk: {self.risk}, Pressure: {self.pressure}"
+      ).add_to(map_obj)
+
+
+class Segment:
+  def __init__(self, sensor1, sensor2):
+    self.sensor1 = sensor1
+    self.sensor2 = sensor2
+
+  def pressure_drop(self):
+    return self.sensor1.pressure - self.sensor2.pressure
+
+
+  def has_leak(self, threshold = 10):
+    return self.pressure_drop() > threshold
+
+  def get_severity(self, drop):
+    if drop > 30:
+      return 'Critical'
+    elif drop > 20:
+      return 'High'
+    else:
+      return 'Low'
+
+  def get_midpoint(self):
+    lat = (self.sensor1.lat + self.sensor2.lat)/2
+    lon = (self.sensor1.lon + self.sensor2.lon)/2
+    return [lat, lon]
+
+  def generate_alert(self):
+    drop= self.pressure_drop()
+    if drop>5:
+      return Alert(
+          type = 'pressure drop',
+          severity = self.get_severity(drop),
+          location = self.get_midpoint()
+      )
+    else:
+      return None
+
+  def add_to_map(self, map_obj):
+    import folium
+    color = 'red' if self.has_leak() else 'blue'
+
+    folium.PolyLine(
+        locations= self.get_coordinates(),
+        color= color,
+        weight = 4
+    ).add_to(map_obj)
+
+
+  def get_coordinates(self):
+    return[
+        [self.sensor1.lat, self.sensor1.lon],
+        [self.sensor2.lat, self.sensor2.lon]
+    ]
+import geopandas as gpd
+from shapely.geometry import Point
+
+def load_water():
+    water= gpd.read_file('water.geojson')
+    return water
+
+def distance_to_water(alert, water):
+  lat,lon= alert.location
+
+  point= gpd.GeoSeries([Point(lon,lat)], crs="EPSG:4326")
+  point_m= point.to_crs(epsg=3857)
+  water_m= water.to_crs(epsg= 3857)
+  distances= water_m.distance(point_m.iloc[0])
+  min_distance= distances.min()
+  return distances.min()
+
+water= load_water()
+for alert in alerts:
+    dist= distance_to_water(alert, water)
+   
+def get_water_risk(distance):
+  if distance < 1500:
+    return 'Critacal'
+  elif distance < 2500:
+    return 'High'
+  else:
+    return 'Low'
+
+
+def combine_risk(pipe_risk, water_risk):
+  levels= {
+      'Low':1,
+      'High':2,
+      'Critical':3
+  }
+  max_level= max(levels[pipe_risk], levels[water_risk])
+
+  for name,value in levels.items():
+    if value== max_level:
+      return name
+
+
+import pandas as pd
+import folium
+import geopandas as gpd
+
+
+
+df = pd.read_csv('sensors.csv')
+
+sensors= []
+
+for _, row in df.iterrows():
+  sensor= Sensor(
+      row['lat'],
+      row['lon'],
+      row['risk'],
+      row['temperature'],
+      row['pressure']
+  )
+  sensors.append(sensor)
+
+segments=[]
+
+
+for i in range(len(sensors)-1):
+  seg= Segment(sensors[i], sensors[i+1])
+  segments.append(seg)
+
+alerts=[]
+
+for seg in segments:
+  alert= seg.generate_alert()
+
+  if alert:
+    alerts.append(alert)
+
+m= folium.Map(location=[53,76], zoom_start=6)
+
+for alert in alerts:
+  dist= distance_to_water(alert, water)
+  water_risk= get_water_risk(dist)
+  final= combine_risk(alert.severity, water_risk)
+
+  alert.distance_to_water= dist
+  alert.water_risk= water_risk
+  alert.final= final
+
+for s in sensors:
+  s.add_to_map(m)
+
+for seg in segments:
+  seg.add_to_map(m)
+
+for alert in alerts:
+  alert.add_to_map(m)
+
+m.save("map.html")
