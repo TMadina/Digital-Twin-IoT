@@ -97,7 +97,7 @@ Interactive map with:
 Open file:
 
 ```text
-map/map3.png
+map/map(3).png
 ```
 
 ---
